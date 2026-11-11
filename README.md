@@ -31,7 +31,8 @@ finds it over the network like the real thing.
 
 ## Features
 
-- **Works with Creality Scan as it is.** The PC discovers the phone the same way it discovers a Scan Bridge.
+- **Meta Quest 3 / Horizon OS support:** Connect your Creality scanner (e.g. CR-Scan Raptor) directly to the Quest 3 USB-C port and use the headset as a wireless bridge over Wi-Fi 6. Declares and handles `horizonos.permission.USB_CAMERA`.
+- **Works with Creality Scan as it is.** The PC discovers the phone/headset the same way it discovers a Scan Bridge.
   Nothing to install on the PC.
 - **Four ways to connect:** Ethernet, Wi-Fi Direct, your home Wi-Fi, or this phone only.
 - **No PC needed if you want.** *This phone only (Local Mobile App Scanning)* feeds the CrealityScan app on
