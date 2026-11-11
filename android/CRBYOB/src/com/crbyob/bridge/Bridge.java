@@ -205,6 +205,7 @@ public final class Bridge {
         p2p.capabilities();
         if (prefs.getBoolean("p2p", false)) p2p.start();
         requestEthernet();
+        permissionPending = 0;
         scanUsb();
     }
 
@@ -315,9 +316,10 @@ public final class Bridge {
             }
             if (!usb.hasPermission(d)) {
                 long now = System.currentTimeMillis();
-                if (now - permissionPending < 60000) return;     // a dialog is already up
+                if (now - permissionPending < 15000) return;     // a dialog is already up
                 permissionPending = now;
-                BLog.log("usb_permission_request", "dev", d.getDeviceName());
+                BLog.log("usb_permission_request", "dev", d.getDeviceName(),
+                        "vid", String.format("%04x", d.getVendorId()), "pid", String.format("%04x", d.getProductId()));
                 BridgeService.requestPermission(ctx, usb, d);
                 return;
             }
@@ -346,6 +348,10 @@ public final class Bridge {
             Otter o = otter;
             if (o != null && (d == null || o.dev.getDeviceName().equals(d.getDeviceName()))) closeOtter("detached");
         }
+    }
+
+    public void resetPermissionPending() {
+        permissionPending = 0;
     }
 
     private void closeOtter(String why) {

@@ -23,7 +23,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 9+: UsbManager only grants USB video-class devices to apps holding CAMERA -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Meta Horizon OS: required for external USB Video Class (UVC) cameras -->
+    <uses-permission android:name="horizonos.permission.USB_CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.external" android:required="false" />
 
     <!-- Android 11+: see the apps that open links. Any https page: the browsers (docs links go to the default
          one, DocsActivity.openInBrowser). github.com: also the GitHub app (the device report offers both). -->

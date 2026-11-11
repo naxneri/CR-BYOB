@@ -48,6 +48,17 @@ final class PermissionGuide {
             "Your scanner plugs in as a USB camera, and Android only lets an app open USB cameras if it holds the "
                     + "Camera permission. CR-BYOB never uses the phone's own cameras.",
             "Without it, CR-BYOB can't talk to the scanner at all.", true);
+
+    static final String PERM_HORIZON_USB_CAMERA = "horizonos.permission.USB_CAMERA";
+
+    static boolean hasHorizonUsbCamera(android.content.Context ctx) {
+        try {
+            ctx.getPackageManager().getPermissionInfo(PERM_HORIZON_USB_CAMERA, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
+        }
+    }
     static final Item NOTIFY = new Item("android.permission.POST_NOTIFICATIONS", 33, "notify", "🔔",
             "Show the bridge's status notification",
             "While the bridge runs, Android requires it to show a notification. It shows the bridge's status and a "
@@ -85,7 +96,12 @@ final class PermissionGuide {
     }
 
     boolean granted(Item it) {
-        return !applies(it) || act.checkSelfPermission(it.perm) == PackageManager.PERMISSION_GRANTED;
+        if (!applies(it)) return true;
+        if (act.checkSelfPermission(it.perm) != PackageManager.PERMISSION_GRANTED) return false;
+        if (it == CAMERA && hasHorizonUsbCamera(act)) {
+            return act.checkSelfPermission(PERM_HORIZON_USB_CAMERA) == PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
     }
 
     /** The permission Wi-Fi Direct needs on this Android version. */
@@ -95,7 +111,14 @@ final class PermissionGuide {
 
     /** Android won't show its prompt any more: asked before, denied, and no rationale -> settings only. */
     private boolean blocked(Item it) {
-        return !granted(it) && prefs.getBoolean("asked_" + it.key, false) && !act.shouldShowRequestPermissionRationale(it.perm);
+        if (granted(it)) return false;
+        if (!prefs.getBoolean("asked_" + it.key, false)) return false;
+        boolean rationale = act.shouldShowRequestPermissionRationale(it.perm);
+        if (it == CAMERA && hasHorizonUsbCamera(act)) {
+            boolean horizonRationale = act.shouldShowRequestPermissionRationale(PERM_HORIZON_USB_CAMERA);
+            return !rationale && !horizonRationale;
+        }
+        return !rationale;
     }
 
     // ------------------------------------------------------------------ flows
@@ -130,7 +153,11 @@ final class PermissionGuide {
         prefs.edit().putBoolean("seen_" + it.key, true).apply();
         boolean toSettings = blocked(it);
         LinearLayout body = card(it.icon, it.title, step);
-        body.addView(para(it.why, TEXT, 15, dp(10)));
+        String whyText = it.why;
+        if (it == CAMERA && hasHorizonUsbCamera(act)) {
+            whyText = "Your scanner plugs in as a USB camera. Horizon OS and Android require camera and USB camera permissions so CR-BYOB can communicate with the scanner. CR-BYOB never uses the headset's internal cameras.";
+        }
+        body.addView(para(whyText, TEXT, 15, dp(10)));
         body.addView(para((it.required ? "Required. " : "Optional. ") + it.without, SUB, 13, dp(10)));
         if (toSettings) body.addView(para("Android won't ask again for this one, so turn it on in Settings › Permissions.", SUB, 13, dp(10)));
         final boolean[] decided = {false};
@@ -216,9 +243,14 @@ final class PermissionGuide {
         prefs.edit().putBoolean("asked_" + it.key, true).apply();
         afterResult.add(then != null ? then : () -> { });
         // Android 12+ ignores a FINE location request that doesn't also ask for COARSE
-        String[] perms = it == LOCATION
-                ? new String[]{it.perm, "android.permission.ACCESS_COARSE_LOCATION"}
-                : new String[]{it.perm};
+        String[] perms;
+        if (it == LOCATION) {
+            perms = new String[]{it.perm, "android.permission.ACCESS_COARSE_LOCATION"};
+        } else if (it == CAMERA && hasHorizonUsbCamera(act)) {
+            perms = new String[]{it.perm, PERM_HORIZON_USB_CAMERA};
+        } else {
+            perms = new String[]{it.perm};
+        }
         act.requestPermissions(perms, REQ);
     }
 

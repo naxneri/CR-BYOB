@@ -658,10 +658,10 @@ final class Dash {
                 s.heroSub = "It disconnected while the phone was on battery. Use a powered USB-C hub.";
             } else if ("Not connected".equals(s.scannerState)) {
                 s.heroText = "Scanner not connected";
-                s.heroSub = "Plug the CR-Scan Otter in through a powered USB 3 hub";
+                s.heroSub = "Plug the scanner in through a powered USB 3 hub";
             } else {
                 s.heroText = "Scanner needs permission";
-                s.heroSub = "Accept the USB dialog on the phone";
+                s.heroSub = "Accept the USB dialog in the headset/device (or tap warning below)";
             }
         } else if (streaming) {
             s.hero = STREAMING;

@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -413,6 +414,21 @@ public final class MainActivity extends Activity {
         Runnable again = () -> h.postDelayed(this::refresh, 200);
         if ("perm:camera".equals(action)) perms.ensure(PermissionGuide.CAMERA, again);
         else if ("perm:notify".equals(action)) perms.ensure(PermissionGuide.NOTIFY, again);
+        else if ("perm:usb".equals(action)) {
+            UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
+            if (um != null) {
+                for (UsbDevice d : um.getDeviceList().values()) {
+                    if (Otter.isOrbbec(d)) {
+                        Bridge b = BridgeService.current();
+                        if (b != null) b.resetPermissionPending();
+                        BridgeService.requestPermission(this, um, d);
+                        BLog.log("usb_manual_retry", "dev", d.getDeviceName());
+                        break;
+                    }
+                }
+            }
+            again.run();
+        }
         else if (action.startsWith("doc:")) help(action.substring(4));
         else if ("report".equals(action)) DeviceReport.open(this);
     }
@@ -1700,6 +1716,8 @@ public final class MainActivity extends Activity {
         boolean askable = !perms.dialogShowing();       // no pills behind an open explanation card
         if (askable && perms.seen(PermissionGuide.CAMERA) && !perms.granted(PermissionGuide.CAMERA))
             warns.add(new String[]{"Camera permission is off, so CR-BYOB can't open the scanner (it's a USB camera). Tap to fix.", "red", "perm:camera"});
+        if (askable && running && !s.scanner && s.plugged && "Attached, waiting for USB permission".equals(s.scannerState))
+            warns.add(new String[]{"Scanner needs USB authorization. Tap to prompt.", "amber", "perm:usb"});
         if (askable && running && perms.seen(PermissionGuide.NOTIFY) && !perms.granted(PermissionGuide.NOTIFY))
             warns.add(new String[]{"Notifications are off: the bridge's status and Stop button are hidden. Tap to fix.", "amber", "perm:notify"});
         if (running && s.brownOut) warns.add(new String[]{"Scanner lost power while the phone was on battery: use a powered USB-C hub", "red", "doc:" + Docs.HELP_POWER});

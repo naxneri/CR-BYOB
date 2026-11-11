@@ -53,15 +53,17 @@ public final class BridgeService extends Service {
         public void onReceive(Context c, Intent i) {
             String a = i.getAction();
             UsbDevice d = i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            boolean granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
             BLog.log("usb_broadcast", "action", a, "dev", d == null ? null : d.getDeviceName(),
-                    "granted", i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
+                    "granted", granted);
             final Bridge b = bridge;
             if (b == null) return;
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
                 new Thread(() -> b.onDetached(d), "usb-detach").start();
-            } else if (ACTION_USB_PERMISSION.equals(a) && !i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+            } else if (ACTION_USB_PERMISSION.equals(a) && !granted) {
                 b.permissionPending = 0;
-                BLog.log("usb_permission_denied", "hint", "press Start in the app (or replug) to ask again");
+                BLog.log("usb_permission_denied", "dev", d == null ? null : d.getDeviceName(),
+                        "hint", "accept the USB authorization in the headset or tap to retry");
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a) || ACTION_USB_PERMISSION.equals(a)) {
                 if (ACTION_USB_PERMISSION.equals(a)) b.permissionPending = 0;
                 // give the device a moment to settle (USB2 -> USB3 re-enumeration)
@@ -73,10 +75,16 @@ public final class BridgeService extends Service {
     };
 
     static void requestPermission(Context ctx, UsbManager usb, UsbDevice d) {
-        Intent i = new Intent(ACTION_USB_PERMISSION).setPackage(ctx.getPackageName());
-        int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
-        PendingIntent pi = PendingIntent.getBroadcast(ctx, 0, i, flags);
-        usb.requestPermission(d, pi);
+        try {
+            Intent i = new Intent(ACTION_USB_PERMISSION).setPackage(ctx.getPackageName());
+            int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, 0, i, flags);
+            BLog.log("usb_request_permission", "dev", d.getDeviceName(),
+                    "vid", String.format("%04x", d.getVendorId()), "pid", String.format("%04x", d.getProductId()));
+            usb.requestPermission(d, pi);
+        } catch (Exception e) {
+            BLog.log("usb_request_permission_error", "dev", d == null ? null : d.getDeviceName(), "err", String.valueOf(e));
+        }
     }
 
     @Override
