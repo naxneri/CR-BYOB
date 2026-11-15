@@ -77,7 +77,7 @@ finds it over the network like the real thing.
 |---|---|
 | CR-Scan Otter | ✅ Tested |
 | CR-Scan Otter Lite, Otter Lite Basic | ❔ Untested (same design as the Otter) |
-| CR-Scan Raptor, Raptor X, Raptor Pro, Raptor Pro Max | ❔ Untested |
+| CR-Scan Raptor, Raptor X, Raptor Pro, Raptor Pro Max | ✅ Tested on Meta Quest 3 (fw 1.5.7, by [@naxneri](https://github.com/naxneri)) |
 | CR-Scan Ferret Pro | ✅ Tested (fw 1.2.7, [device report](https://github.com/NickLD/CR-BYOB/issues/2) by [@Xalies](https://github.com/Xalies)) |
 | CR-Scan Ferret | ❔ Untested (same design as the Ferret Pro) |
 | Sermoon X1, Sermoon S1 | ❔ Untested |
@@ -88,13 +88,14 @@ finds it over the network like the real thing.
 > [Device report](https://github.com/NickLD/CR-BYOB/issues/new?template=device-report.yml), whether it works or not.
 > That's how scanners move from untested to supported. No GitHub account needed: the app can send it anonymously.
 
-### Phones
+### Phones and Headsets
 
-Any Android 8+ phone with USB host (OTG) support and a **USB 3** port should work. USB 3 is required: the
+Any Android 8+ phone or Android-based standalone VR headset (such as Meta Quest 3 running Horizon OS) with USB host (OTG) support and a **USB 3** port should work. USB 3 is required: the
 scanner's streams need more bandwidth than USB 2 provides.
 
-| Phone | Android | Ethernet | Wi-Fi | Wi-Fi Direct | This phone only (Local Mobile App Scanning) | Reported by |
+| Device | Android | Ethernet | Wi-Fi | Wi-Fi Direct | This device only (Local Mobile App Scanning) | Reported by |
 |---|---|:---:|:---:|:---:|:---:|---|
+| [Meta Quest 3](docs/phones.md#meta-quest-3) | Horizon OS (Android 14) | — | ✅ | — | — | [@naxneri](https://github.com/naxneri) |
 | [Google Pixel 10 Pro XL](docs/phones.md#google-pixel-10-pro-xl) | 16 | ✅ | ✅ | ✅ | ✅ | [@NickLD](https://github.com/NickLD) |
 | [Google Pixel 6](docs/phones.md#google-pixel-6) | 17 | — | ✅ | ✅ | — | [@Xalies](https://github.com/Xalies) |
 | [Google Pixel 5](docs/phones.md#google-pixel-5) | 14 | ✅ | 🟡 | 🟡 | ⚠️ | [@NickLD](https://github.com/NickLD) |

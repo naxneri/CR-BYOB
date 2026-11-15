@@ -27,7 +27,7 @@ final class AppVersion {
 
     // Digit counts capped so parsing can't overflow (a GitHub tag is outside input); ranges are checked below.
     private static final java.util.regex.Pattern SEMVER =
-            java.util.regex.Pattern.compile("^v?(\\d{1,4})\\.(\\d{1,2})\\.(\\d{1,2})(?:-(alpha|beta|rc)\\.(\\d{1,2}))?$");
+            java.util.regex.Pattern.compile("^v?(\\d{1,4})\\.(\\d{1,2})\\.(\\d{1,2})(?:-(?:(alpha|beta|rc)\\.(\\d{1,2})|(quest\\d*)))?$");
 
     /**
      * versionCode for a release version ("1.2.3", "v1.3.0-beta.2"), the same formula as build.gradle.kts:
@@ -45,6 +45,8 @@ final class AppVersion {
             int n = Integer.parseInt(m.group(5));
             if (n > 29) return -1;
             stage = "alpha".equals(m.group(4)) ? n : "beta".equals(m.group(4)) ? 30 + n : 60 + n;
+        } else if (m.group(6) != null) {
+            stage = 99;
         }
         return (int) (major * 1_000_000 + minor * 10_000 + patch * 100 + stage);
     }

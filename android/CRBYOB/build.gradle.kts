@@ -52,7 +52,7 @@ fun gitVersion(): GitVersion {
         ""
     }
 
-    val tagged = Regex("""^v(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?-(\d+)-g([0-9a-f]+)(-dirty)?$""")
+    val tagged = Regex("""^v(\d+)\.(\d+)\.(\d+)(?:-(?:(alpha|beta|rc)\.(\d+)|(quest\d*)))?-(\d+)-g([0-9a-f]+)(-dirty)?$""")
         .matchEntire(describe)
     if (tagged == null) {
         // a vX.Y.Z… tag that isn't a valid release tag (e.g. v1.2.3-preview): say so rather than build 0.0.0
@@ -63,19 +63,22 @@ fun gitVersion(): GitVersion {
         val (sha, dirty) = hash.destructured
         return GitVersion("0.0.0-dev+$sha" + (if (dirty.isEmpty()) "" else ".dirty"), 1, sha)
     }
-    val (maj, min, pat, stage, n, ahead, sha, dirty) = tagged.destructured
+    val (maj, min, pat, stage, n, quest, ahead, sha, dirty) = tagged.destructured
     // toLongOrNull: an absurdly long number gives the range error below, not a NumberFormatException
     val major = maj.toLongOrNull() ?: Long.MAX_VALUE
     val minor = min.toLongOrNull() ?: Long.MAX_VALUE
     val patch = pat.toLongOrNull() ?: Long.MAX_VALUE
     if (minor > 99 || patch > 99 || major > 2099)
         throw GradleException("Tag v$maj.$min.$pat: minor/patch must be 0..99 and major 0..2099")
-    val stageCode = if (stage.isEmpty()) 99 else {
+    val stageCode = if (stage.isNotEmpty()) {
         val num = n.toLongOrNull() ?: Long.MAX_VALUE
         if (num > 29) throw GradleException("Tag pre-release number must be 0..29 (got $stage.$n)")
         when (stage) { "alpha" -> num.toInt(); "beta" -> 30 + num.toInt(); else -> 60 + num.toInt() }
+    } else {
+        99
     }
-    val base = "$major.$minor.$patch" + (if (stage.isEmpty()) "" else "-$stage.$n")
+    val suffix = if (stage.isNotEmpty()) "-$stage.$n" else if (quest.isNotEmpty()) "-$quest" else ""
+    val base = "$major.$minor.$patch$suffix"
     val exact = ahead == "0" && dirty.isEmpty()
     val name = if (exact) base
         else "$base-dev.$ahead+$sha" + (if (dirty.isEmpty()) "" else ".dirty")

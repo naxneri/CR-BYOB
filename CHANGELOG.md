@@ -10,6 +10,22 @@ when tagging. A release build fails if its version has no dated section here.
 
 ## [Unreleased]
 
+## [0.2.14-quest3] - 2026-11-15
+
+### Added
+- Meta Quest 3 & Horizon OS (Android 14) support: use the VR headset as a high-speed wireless bridge
+  over Wi-Fi 6, connecting Creality scanners (CR-Scan Raptor, Otter, Ferret) directly to the Quest 3 USB-C port.
+- Horizon OS UVC camera permissions: declares and dynamically requests `horizonos.permission.USB_CAMERA`.
+- Headset USB permission recovery: interactive dashboard warning and tap-to-retry action (`perm:usb`) to
+  prompt for USB authorization if dismissed in VR.
+
+### Fixed
+- Merged upstream CR-BYOB 0.2.14 improvements:
+  - CR-Scan Raptor: blue-line color FPS cap per scan mode, preventing stream lockups on Boost/Max.
+  - Bridge start resilience: automatically starts or retries after unlocking the device on Android 12+.
+  - Wi-Fi Direct: optimized 5 GHz band selection on older Android versions.
+  - Anonymous device reports and full-page issue tracking.
+
 ## [0.2.14] - 2026-11-14
 
 ### Fixed

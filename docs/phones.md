@@ -5,6 +5,7 @@ port unless the phone's section names another scanner.
 
 | Phone | Android | Ethernet | Wi-Fi | Wi-Fi Direct | This phone only (Local Mobile App Scanning) | Reported by |
 |---|---|:---:|:---:|:---:|:---:|---|
+| [Meta Quest 3](#meta-quest-3) | Horizon OS (Android 14) | — | ✅ | — | — | [@naxneri](https://github.com/naxneri) |
 | [Google Pixel 10 Pro XL](#google-pixel-10-pro-xl) | 16 | ✅ | ✅ | ✅ | ✅ | [@NickLD](https://github.com/NickLD) |
 | [Google Pixel 6](#google-pixel-6) | 17 | — | ✅ | ✅ | — | [@Xalies](https://github.com/Xalies) |
 | [Google Pixel 5](#google-pixel-5) | 14 | ✅ | 🟡 | 🟡 | ⚠️ | [@NickLD](https://github.com/NickLD) |
@@ -88,3 +89,17 @@ Android 17 · Reported by [@SelfMadeDiesel](https://github.com/SelfMadeDiesel) (
 | This phone only (Local Mobile App Scanning) | — Not tested |
 
 Measured over 7 minutes of streaming.
+
+## Meta Quest 3
+
+Horizon OS (Android 14) · CR-Scan Raptor (fw 1.5.7) · Reported by [@naxneri](https://github.com/naxneri)
+
+| Connection | Result |
+|---|---|
+| Ethernet | — Not tested |
+| Wi-Fi | ✅ Full performance over Wi-Fi 6 to Creality Scan on Windows PC. |
+| Wi-Fi Direct | — Not tested |
+| This phone only (Local Mobile App Scanning) | — Not tested |
+
+Connects directly to the USB-C port of the Meta Quest 3. Uses `horizonos.permission.USB_CAMERA` for external UVC video class devices.
+

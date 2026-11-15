@@ -19,6 +19,8 @@ public class VersionAndChangelogTest {
         assertEquals(1020399, AppVersion.codeOf("1.2.3"));
         assertEquals(1020399, AppVersion.codeOf("v1.2.3"));
         assertEquals(2099999999, AppVersion.codeOf("2099.99.99"));
+        assertEquals(21499, AppVersion.codeOf("0.2.14-quest3"));
+        assertEquals(21499, AppVersion.codeOf("v0.2.14-quest3"));
     }
 
     @Test public void codeOfPrereleasesSortBetweenReleases() {
