@@ -269,12 +269,18 @@ final class Dash {
     private static final class Plug {
         String key, model, status, sn;
         boolean probed, usbSuper;
-        long lastProbe;
+        long created;
     }
     private static volatile Plug plug;
 
     public static void resetPlug() {
-        plug = null;
+        Plug p = plug;
+        if (p != null) {
+            p.probed = false;
+            p.created = 0;
+        } else {
+            plug = null;
+        }
     }
 
     /**
@@ -293,18 +299,21 @@ final class Dash {
         }
         String key = d.getDeviceName() + "#" + d.getDeviceId();
         Plug p = plug;
+        long now = System.currentTimeMillis();
         if (p == null || !p.key.equals(key)) {
             p = new Plug();
             p.key = key;
+            p.created = now;
             ScannerModel m = ScannerModel.forPid(ScannerModel.loadDocument(ctx, ctx.getFilesDir()), d.getProductId());
             p.model = m.name;
             p.status = m.status;
             plug = p;
         }
-        long now = System.currentTimeMillis();
-        boolean shouldProbe = (!p.probed || (!p.usbSuper && now - p.lastProbe >= 1000)) && usb.hasPermission(d);
+        // Give the USB 3.0 PHY / hub link training ~300ms to settle before reading descriptors.
+        // Once probed, do NOT probe in a loop: continuous openDevice() control transfers on EP0
+        // disrupt USB 3.0 SuperSpeed LTSSM link training on hubs and lock them in USB 2.
+        boolean shouldProbe = !p.probed && (now - p.created >= 300) && usb.hasPermission(d);
         if (shouldProbe) {
-            p.lastProbe = now;
             android.hardware.usb.UsbDeviceConnection c = null;
             try {
                 c = usb.openDevice(d);
