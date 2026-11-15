@@ -56,6 +56,9 @@ public final class BridgeService extends Service {
             boolean granted = i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
             BLog.log("usb_broadcast", "action", a, "dev", d == null ? null : d.getDeviceName(),
                     "granted", granted);
+            if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a) || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
+                Dash.resetPlug();
+            }
             final Bridge b = bridge;
             if (b == null) return;
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {

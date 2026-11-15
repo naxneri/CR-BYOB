@@ -269,8 +269,13 @@ final class Dash {
     private static final class Plug {
         String key, model, status, sn;
         boolean probed, usbSuper;
+        long lastProbe;
     }
     private static volatile Plug plug;
+
+    public static void resetPlug() {
+        plug = null;
+    }
 
     /**
      * Bridge off: which scanner is plugged in, without starting the bridge. Android lists USB devices without
@@ -296,7 +301,10 @@ final class Dash {
             p.status = m.status;
             plug = p;
         }
-        if (!p.probed && usb.hasPermission(d)) {
+        long now = System.currentTimeMillis();
+        boolean shouldProbe = (!p.probed || (!p.usbSuper && now - p.lastProbe >= 1000)) && usb.hasPermission(d);
+        if (shouldProbe) {
+            p.lastProbe = now;
             android.hardware.usb.UsbDeviceConnection c = null;
             try {
                 c = usb.openDevice(d);
@@ -308,6 +316,7 @@ final class Dash {
                     if (sn == null) sn = c.getSerial();
                     p.sn = sn;
                     p.probed = true;
+                    if (p.usbSuper) BLog.log("usb_idle_probe_super", "dev", d.getDeviceName());
                 }
             } catch (Exception e) {
                 BLog.log("usb_idle_probe_failed", "err", String.valueOf(e));

@@ -424,6 +424,7 @@ public final class MainActivity extends Activity {
         if ("perm:camera".equals(action)) perms.ensure(PermissionGuide.CAMERA, again);
         else if ("perm:notify".equals(action)) perms.ensure(PermissionGuide.NOTIFY, again);
         else if ("perm:usb".equals(action)) {
+            Dash.resetPlug();
             UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
             if (um != null) {
                 for (UsbDevice d : um.getDeviceList().values()) {
@@ -436,6 +437,10 @@ public final class MainActivity extends Activity {
                     }
                 }
             }
+            again.run();
+        }
+        else if ("usb:recheck".equals(action)) {
+            Dash.resetPlug();
             again.run();
         }
         else if (action.startsWith("doc:")) help(action.substring(4));
@@ -1463,7 +1468,12 @@ public final class MainActivity extends Activity {
         startStop.addView(ssText);
         startStop.setOnClickListener(v -> {
             if (ssBusy()) return;
-            if (BridgeService.current() == null && usb2Block(last)) return;
+            if (BridgeService.current() == null && usb2Block(last)) {
+                Dash.resetPlug();
+                h.postDelayed(this::refresh, 100);
+                Toast.makeText(this, "Checking USB 3…", Toast.LENGTH_SHORT).show();
+                return;
+            }
             if (BridgeService.current() != null) {
                 ssPending(false);
                 startService(new Intent(this, BridgeService.class).setAction(BridgeService.ACTION_STOP));
@@ -1507,7 +1517,7 @@ public final class MainActivity extends Activity {
         String label;
         int bg;
         if (usb2) {
-            label = "Can't start: scanner is on USB 2";
+            label = "Can't start: scanner is on USB 2 (tap to re-check)";
             bg = WARN_AMBER;
         } else if (busy) {
             boolean stoppingNow = BridgeService.stopping || (!BridgeService.starting && !ssWant);
@@ -1523,7 +1533,7 @@ public final class MainActivity extends Activity {
         ssText.setText(label);
         ssText.setTextColor(usb2 ? AMBER : TEXT);
         ssSpin.setVisibility(busy ? View.VISIBLE : View.GONE);
-        startStop.setEnabled(!busy && !usb2);
+        startStop.setEnabled(!busy);
         startStop.setAlpha(busy ? 0.75f : 1f);
         startStop.setBackground(rounded(bg, dp(12)));
         startStop.setContentDescription(label);
@@ -1772,10 +1782,14 @@ public final class MainActivity extends Activity {
         if (!running && usb2Block(s)) {                // link to the USB 2 fixes; the whole line is the tap target
             android.text.SpannableStringBuilder t = new android.text.SpannableStringBuilder(scannerLine(s, false)).append(' ');
             int st = t.length();
-            t.append("Already on USB 3? More fixes ›");
+            t.append("Tap to re-check ›");
             t.setSpan(new android.text.style.ForegroundColorSpan(BLUE), st, t.length(), 0);
             scanLine.setText(t);
-            scanLine.setOnClickListener(v -> help(Docs.HELP_USB2));
+            scanLine.setOnClickListener(v -> {
+                Dash.resetPlug();
+                h.postDelayed(this::refresh, 100);
+                Toast.makeText(this, "Re-checking USB 3 connection…", Toast.LENGTH_SHORT).show();
+            });
         } else {
             scanLine.setText(scannerLine(s, running));
             scanLine.setOnClickListener(null);
@@ -1791,6 +1805,8 @@ public final class MainActivity extends Activity {
             warns.add(new String[]{"Camera permission is off, so CR-BYOB can't open the scanner (it's a USB camera). Tap to fix.", "red", "perm:camera"});
         if (askable && running && !s.scanner && s.plugged && "Attached, waiting for USB permission".equals(s.scannerState))
             warns.add(new String[]{"Scanner needs USB authorization. Tap to prompt.", "amber", "perm:usb"});
+        if (askable && !running && usb2Block(s))
+            warns.add(new String[]{"Scanner is currently recognized as USB 2. Tap to re-check.", "amber", "usb:recheck"});
         if (askable && running && perms.seen(PermissionGuide.NOTIFY) && !perms.granted(PermissionGuide.NOTIFY))
             warns.add(new String[]{"Notifications are off: the bridge's status and Stop button are hidden. Tap to fix.", "amber", "perm:notify"});
         if (running && s.brownOut) warns.add(new String[]{"Scanner lost power while the phone was on battery: use a powered USB-C hub", "red", "doc:" + Docs.HELP_POWER});
