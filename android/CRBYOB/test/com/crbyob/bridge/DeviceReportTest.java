@@ -23,6 +23,16 @@ import java.util.regex.Pattern;
 public class DeviceReportTest {
     private static final String REPO = "https://github.com/NickLD/CR-BYOB";
 
+    @Test public void titleWithScanner_fillsThePlaceholderButNotARewrittenTitle() {
+        String t = DeviceReport.titleWithScanner("[Device] <scanner> on Google Pixel 9", "<scanner>", "CR-Scan Otter");
+        assertEquals("[Device] CR-Scan Otter on Google Pixel 9", t);
+        // picking again swaps the last pick; "Other" puts the placeholder back
+        assertEquals("[Device] CR-Scan Raptor on Google Pixel 9",
+                DeviceReport.titleWithScanner(t, "CR-Scan Otter", "CR-Scan Raptor"));
+        assertEquals("[Device] <scanner> on Google Pixel 9", DeviceReport.titleWithScanner(t, "CR-Scan Otter", "<scanner>"));
+        assertEquals(null, DeviceReport.titleWithScanner("My Otter keeps dropping", "<scanner>", "CR-Scan Otter"));
+    }
+
     private static String read(String rel) throws Exception {
         return new String(Files.readAllBytes(new File("../..", rel).toPath()), StandardCharsets.UTF_8);
     }
@@ -147,6 +157,22 @@ public class DeviceReportTest {
         assertFalse(query(DeviceReport.reportUrl(REPO, f, false, note, pinnedLines(), recentLines())).containsKey("logs"));
         assertTrue(query(DeviceReport.reportUrl(REPO, f, true, note, pinnedLines(), recentLines())).get("body")
                 .endsWith("### Log\n\n_No response_"));
+    }
+
+    /** Sent anonymously with the whole log going privately: the public body keeps only a short tail and says so. */
+    @Test
+    public void anonymousWithThePrivateLog_keepsAShortTail() throws Exception {
+        DeviceReport.Fields f = DeviceReport.collect(otterOnWifi(), troubledSession(), "CR-BYOB 0.2.4 (1, github, abc) · Google Pixel 8 Pro · Android 17 (API 37)", "Google Pixel 8 Pro");
+        String shortLog = DeviceReport.anonLog(f, true, pinnedLines(), recentLines());
+        assertTrue(shortLog, shortLog.contains("whole log was sent privately"));
+        assertTrue(shortLog, shortLog.contains("-- Last " + DeviceReport.SHORT_TAIL_LINES + " lines --"));
+        assertTrue(shortLog, shortLog.contains("-- Scanner setup (latest) --"));
+        assertFalse(shortLog, shortLog.contains("192.168.") || shortLog.contains("BCA674105K2"));
+
+        assertEquals(DeviceReport.logFor(REPO, f, true, "", pinnedLines(), recentLines()),
+                DeviceReport.anonLog(f, false, pinnedLines(), recentLines()));   // no private log: today's long tail
+        f.includeLog = false;
+        assertEquals("", DeviceReport.anonLog(f, true, pinnedLines(), recentLines()));
     }
 
     /** A session with every diagnostic set: power, disconnects by phase, reduced rate, errors, latency, heat, chip. */

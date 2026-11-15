@@ -74,6 +74,13 @@
             android:exported="false"
             android:label="Help" />
 
+        <!-- This phone's anonymous device reports and their reply threads, see AnonReports -->
+        <activity
+            android:name=".ReportsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:label="Your reports" />
+
         <!-- Mirror viewer (Creality Scan's RGB / IR / 3D views over WebRTC in a WebView) -->
         <activity
             android:name=".MirrorActivity"

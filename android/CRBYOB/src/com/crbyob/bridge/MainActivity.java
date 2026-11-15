@@ -55,6 +55,14 @@ public final class MainActivity extends Activity {
             h.postDelayed(this, 1000);
         }
     };
+    /** Report replies while the dashboard stays open: looked at every minute, fetched every 15. */
+    private final Runnable replyCheck = new Runnable() {
+        @Override
+        public void run() {
+            AnonReports.maybeCheck(MainActivity.this, AnonReports.CHECK_INTERVAL_MS, MainActivity.this::refreshReplies);
+            h.postDelayed(this, 60_000);
+        }
+    };
 
     // header
     private OrbView orb;
@@ -279,6 +287,7 @@ public final class MainActivity extends Activity {
 
         buildHeader(root);
         buildReportPrompt(root);
+        buildReplyCard(root);
         buildCrashPrompt(root);
         buildActivity(root);
         root.removeView(linkCard);                                   // Link quality above Streams
@@ -1006,6 +1015,12 @@ public final class MainActivity extends Activity {
         rep.setPadding(0, dp(8), 0, dp(4));
         rep.setOnClickListener(x -> DeviceReport.open(this));
         root.addView(rep, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        yourReports = text(13, BLUE, false);
+        yourReports.setGravity(Gravity.CENTER_HORIZONTAL);
+        yourReports.setPadding(0, dp(4), 0, dp(4));
+        yourReports.setOnClickListener(x -> ReportsActivity.openList(this));
+        yourReports.setVisibility(View.GONE);
+        root.addView(yourReports, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // Ko-fi button: GitHub builds only (null in the Play flavor).
         View donate = Donate.footerButton(this);
@@ -1224,6 +1239,49 @@ public final class MainActivity extends Activity {
         show(reportCard, show);
     }
 
+    // ------------------------------------------------------------------ replies to anonymous reports (AnonReports)
+    private LinearLayout replyCard;
+    private TextView replyTitle;
+    private android.animation.ValueAnimator replyPulse;   // the card's outline fading in and out while it shows
+    private TextView yourReports;          // footer: "View your N submitted device reports"
+
+    private void buildReplyCard(LinearLayout root) {
+        replyCard = card(root, null);
+        android.graphics.drawable.GradientDrawable bg = rounded(CARD, dp(16));
+        int stroke = Math.max(1, dp(2));
+        bg.setStroke(stroke, BLUE);
+        replyCard.setBackground(bg);
+        replyPulse = android.animation.ValueAnimator.ofInt(0x22, 0xFF);
+        replyPulse.setDuration(1100);
+        replyPulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        replyPulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        replyPulse.addUpdateListener(an -> bg.setStroke(stroke, (BLUE & 0x00FFFFFF) | ((int) an.getAnimatedValue() << 24)));
+        replyTitle = text(16, TEXT, true);
+        replyCard.addView(replyTitle);
+        replyCard.setOnClickListener(v -> {           // one unread report: straight to its thread
+            int one = AnonReports.onlyUnread(AnonReports.reports(getSharedPreferences("bridge", MODE_PRIVATE)));
+            if (one > 0) ReportsActivity.open(this, one);
+            else ReportsActivity.openList(this);
+        });
+        replyCard.setVisibility(View.GONE);
+    }
+
+    void refreshReplies() {
+        if (replyCard == null) return;
+        android.content.SharedPreferences p = getSharedPreferences("bridge", MODE_PRIVATE);
+        boolean on = AnonReports.enabled();
+        int n = on ? AnonReports.reports(p).length() : 0;
+        boolean unread = on && AnonReports.anyUnread(p);
+        int one = unread ? AnonReports.onlyUnread(AnonReports.reports(p)) : 0;
+        replyTitle.setText(one > 0 ? "There is a reply on your report #" + one + " ›"
+                : "There are replies on your reports ›");
+        show(replyCard, unread);
+        if (unread && !replyPulse.isStarted()) replyPulse.start();
+        else if (!unread) replyPulse.cancel();
+        yourReports.setText("View your " + n + " submitted device report" + (n == 1 ? "" : "s") + " ›");
+        show(yourReports, n > 0);
+    }
+
     // ------------------------------------------------------------------ "CR-BYOB stopped unexpectedly" (crash card)
     private LinearLayout crashCard;
     private TextView crashText;
@@ -1372,9 +1430,19 @@ public final class MainActivity extends Activity {
         h.postDelayed(this::refresh, 300);
     }
 
+    /** A start Android refused; retried at the next onResume. */
+    private boolean startPending;
+
     private void startBridge() {
         Intent s = new Intent(this, BridgeService.class).setAction(BridgeService.ACTION_START);
-        startForegroundService(s);
+        try {
+            startForegroundService(s);
+        } catch (IllegalStateException e) {
+            // ForegroundServiceStartNotAllowedException (12+): a USB attach reached onNewIntent (or even onResume)
+            // while the screen was locked, so we don't count as foreground yet
+            BLog.log("bridge_start_deferred", "err", e.getClass().getSimpleName());
+            startPending = true;
+        }
     }
 
     private void buildStartStop(LinearLayout c) {
@@ -1467,6 +1535,10 @@ public final class MainActivity extends Activity {
         h.post(tick);
         if (ssBusy()) h.post(ssPoll);
         if (BridgeService.current() == null) uiWatch.start();   // readiness for the Mirror button even with the bridge off
+        if (startPending) { startPending = false; startBridge(); }
+        refreshReplies();
+        AnonReports.maybeCheck(this, AnonReports.RESUME_GAP_MS, this::refreshReplies);   // launched or brought back
+        h.postDelayed(replyCheck, 60_000);
     }
 
     @Override
@@ -1474,6 +1546,7 @@ public final class MainActivity extends Activity {
         super.onPause();
         h.removeCallbacks(tick);
         h.removeCallbacks(ssPoll);
+        h.removeCallbacks(replyCheck);
         uiWatch.stop();
     }
 

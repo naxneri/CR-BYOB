@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
@@ -618,7 +620,10 @@ public final class Bridge {
                 if (floor > 0) floors.put(size, floor);
                 // above the scanner's top rate at this size: Creality's bridge leaves these out (0xFC3)
                 int cap = isIr(st) ? m.fpsCap(p.width, p.height) : 0;
-                if (cap > 0 && p.fps > cap || UsbDesc.belowFpsFloor(vs.profiles, p, floor)) { hidden++; continue; }
+                // colour shares sizes with IR (1280x800): keep its per-mode limits under the IR floor, or Creality
+                // Scan's Laser Lines 10 snaps up to the floor and the colour camera stalls
+                Collection<Integer> keep = st == ST_COLOR ? colorKeepFps(p.width, p.height) : Collections.emptySet();
+                if (cap > 0 && p.fps > cap || UsbDesc.belowFpsFloor(vs.profiles, p, floor, keep)) { hidden++; continue; }
                 videoEntry(body, st, p, f.ob);
                 count++;
                 if (isIr(st) && p.fourcc.equals("GREY")) {
@@ -824,16 +829,75 @@ public final class Bridge {
         return f;
     }
 
+    /** The scanner's 0xFC3 list for its current work mode (re-read at open and each 0x413 set); null = unknown. */
+    volatile List<int[]> effective;
+
+    /** The scanner's top colour rate at w x h in its current work mode, 0 if unknown. */
+    int colorFpsCap(int w, int h) {
+        return colorCap(effective, w, h);
+    }
+
+    private String colorCapsKey(int w, int h) {
+        return "color_caps_" + model.pid + "_" + w + "x" + h;
+    }
+
+    /**
+     * Colour rates kept in 0xFC1 below the fps floor: the scanner's colour limit in each work mode seen so far
+     * (remembered per model, as Creality Scan reads 0xFC1 only at connect, in whatever mode the scanner is then).
+     * Raptor: Laser Lines 10, so Creality Scan gets the 10 it asks for there, and Infrared's 20 still snaps to 30.
+     */
+    Set<Integer> colorKeepFps(int w, int h) {
+        Set<Integer> s = rememberedColorCaps(w, h);
+        int cur = colorFpsCap(w, h);
+        if (cur > 0) s.add(cur);
+        return s;
+    }
+
+    private Set<Integer> rememberedColorCaps(int w, int h) {
+        Set<Integer> s = new TreeSet<>();
+        for (String v : prefs.getString(colorCapsKey(w, h), "").split(","))
+            if (!v.isEmpty()) try { s.add(Integer.parseInt(v)); } catch (NumberFormatException ignored) { }
+        return s;
+    }
+
+    /** Adds the colour limits in a 0xFC3 list to the remembered ones. */
+    private void rememberColorCaps(List<int[]> eff) {
+        if (eff == null) return;
+        for (int[] e : eff) {
+            if (e[0] != ST_COLOR) continue;
+            Set<Integer> s = rememberedColorCaps(e[2], e[3]);
+            if (!s.add(colorCap(eff, e[2], e[3]))) continue;
+            StringBuilder sb = new StringBuilder();
+            for (int v : s) sb.append(sb.length() > 0 ? "," : "").append(v);
+            prefs.edit().putString(colorCapsKey(e[2], e[3]), sb.toString()).apply();
+            BLog.log("color_cap_learned", "pid", model.pid, "size", e[2] + "x" + e[3], "caps", sb.toString());
+        }
+    }
+
+    /**
+     * Top COLOR rate at w x h in a 0xFC3 list, 0 if none. The Raptor allows 10 in Laser Lines Scan and 30 in Chip
+     * Scale Speckle Scan [O issue #15]; Creality Scan's own table asks 10 in Laser Lines, and on USB its SDK filters
+     * the colour modes by this list (Gemini2ProfileRestrictor) [O], as the official bridge does [O].
+     */
+    static int colorCap(List<int[]> eff, int w, int h) {
+        int cap = 0;
+        if (eff != null) for (int[] e : eff) if (e[0] == ST_COLOR && e[2] == w && e[3] == h) cap = Math.max(cap, e[4]);
+        return cap;
+    }
+
     /** Reads 0xFC3 and logs it raw and, if it parses, as "IR_L Y8 1280x800<=30" entries. Never throws. */
     void logEffectiveProfiles(String why) {
         if (otter == null) return;
         String[] err = new String[1];
         byte[] d = scannerRawRead(PROP_EFFECTIVE_PROFILES, err);
         if (d == null) {
+            effective = null;
             BLog.log("effective_profiles", "why", why, "err", err[0]);
             return;
         }
         List<int[]> e = parseEffectiveProfiles(d);
+        effective = e;
+        rememberColorCaps(e);
         BLog.log("effective_profiles", "why", why, "len", d.length,
                 "entries", e == null ? "unparsed" : describeEffectiveProfiles(e),
                 "hex", Hp.hex(d, 0, Math.min(d.length, 1024)));

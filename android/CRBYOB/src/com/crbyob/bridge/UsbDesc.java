@@ -70,6 +70,21 @@ public final class UsbDesc {
         return p.fps < Math.min(floor, max);
     }
 
+    /** belowFpsFloor, except for the rates in keep. */
+    public static boolean belowFpsFloor(List<Profile> all, Profile p, int floor, java.util.Collection<Integer> keep) {
+        return !keep.contains(p.fps) && belowFpsFloor(all, p, floor);
+    }
+
+    /** p, or if it is faster than cap (> 0) the fastest mode of the same format and size at or under cap; else p. */
+    public static Profile capFps(List<Profile> all, Profile p, int cap) {
+        if (cap <= 0 || p.fps <= cap) return p;
+        Profile best = null;
+        for (Profile q : all)
+            if (q.fourcc.equals(p.fourcc) && q.width == p.width && q.height == p.height && q.fps <= cap
+                    && (best == null || q.fps > best.fps)) best = q;
+        return best != null ? best : p;
+    }
+
     public static final class Hid {
         public int iface;
         public int endpoint = -1;

@@ -65,7 +65,7 @@ also run the TCP 8999 link test.
 - logcat: `adb shell logcat -s CRBYOB` (one JSON object per line). Passwords are logged as `(hidden)`.
 - `files/bridge.jsonl` in the app's private dir (rotates at 8 MB); the dashboard's *Raw log* shows the last
   80 lines.
-- *Export log* (dashboard) and the device report's *Include the log* zip `bridge.1.jsonl`, `bridge.jsonl`,
+- *Export log* (dashboard) and the device report's *Include anonymous & redacted logs* zip `bridge.1.jsonl`, `bridge.jsonl`,
   `runs/*.json` and a `scanners.json` override with a readable `summary.txt`, redacted by `LogExport`
   (serials, SSIDs, passwords, MAC and IP addresses; IPs become `ip1`, `ip2`, ...).
 

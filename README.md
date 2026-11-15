@@ -86,7 +86,7 @@ finds it over the network like the real thing.
 > [!TIP]
 > **Have an untested scanner?** Please try it and file a
 > [Device report](https://github.com/NickLD/CR-BYOB/issues/new?template=device-report.yml), whether it works or not.
-> That's how scanners move from untested to supported.
+> That's how scanners move from untested to supported. No GitHub account needed: the app can send it anonymously.
 
 ### Phones
 
@@ -107,7 +107,8 @@ scanner's streams need more bandwidth than USB 2 provides.
 > [!TIP]
 > **Tested CR-BYOB on your phone?** File a [Device report](https://github.com/NickLD/CR-BYOB/issues/new?template=device-report.yml) and say
 > which connections you tried, whether it worked well, poorly or not at all. Your phone gets added to this
-> table, credited to your GitHub username.
+> table, credited to your GitHub username, or as "anonymous report" with a link to the issue if you sent it
+> anonymously from the app.
 
 ## Choosing a connection
 

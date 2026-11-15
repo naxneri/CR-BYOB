@@ -12,12 +12,26 @@ import android.view.View;
 /** Small Canvas views for the dashboard (no external libraries). */
 final class Widgets {
     static final int BG = 0xFF0E1116, CARD = 0xFF171B22, LINE = 0xFF2A313C, TEXT = 0xFFE6EDF3, SUB = 0xFF8B949E,
-            GREEN = 0xFF3FB950, BLUE = 0xFF58A6FF, AMBER = 0xFFD29922, RED = 0xFFF85149, GREY = 0xFF6E7681;
+            GREEN = 0xFF3FB950, BLUE = 0xFF58A6FF, AMBER = 0xFFD29922, RED = 0xFFF85149, GREY = 0xFF6E7681,
+            PURPLE = 0xFFA371F7;
 
     private Widgets() {}
 
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
+    }
+
+    /** Styles t as a small outlined badge: colored border and text, no fill (a report's status). */
+    static void badge(android.widget.TextView t, String label, int color) {
+        Context c = t.getContext();
+        t.setText(label);
+        t.setTextColor(color);
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setPadding(dp(c, 8), dp(c, 2), dp(c, 8), dp(c, 2));
+        android.graphics.drawable.GradientDrawable g = roundRect(0x00000000, dp(c, 10));
+        g.setStroke(Math.max(1, dp(c, 1)), color);
+        t.setBackground(g);
     }
 
     static android.graphics.drawable.GradientDrawable roundRect(int color, float radiusPx) {
@@ -68,30 +82,35 @@ final class Widgets {
         for (int w : which) {
             android.widget.Button b = d.getButton(w);
             if (b == null || b.getVisibility() != View.VISIBLE || b.getText().length() == 0) continue;
-            boolean primary = w == android.app.AlertDialog.BUTTON_POSITIVE;
-            b.setAllCaps(false);
-            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
-            b.setTextColor(primary ? BG : TEXT);
-            if (primary) b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            b.setBackground(roundRect(primary ? BLUE : LINE, dp(c, 10)));
-            b.setPadding(dp(c, 16), dp(c, 4), dp(c, 16), dp(c, 4));
-            b.setMinHeight(dp(c, 40));
-            b.setMinimumHeight(dp(c, 40));
-            android.view.ViewGroup.LayoutParams lp = b.getLayoutParams();
-            if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
-                ((android.view.ViewGroup.MarginLayoutParams) lp).setMargins(dp(c, 8), 0, 0, dp(c, 8));
-                b.setLayoutParams(lp);
-            }
-            // The button bar is a horizontal LinearLayout with gravity=bottom; with baseline alignment on (the
-            // default) the restyled buttons end up 2 x the bottom margin above where they belong and their tops
-            // are clipped by the bar.
-            if (b.getParent() instanceof android.widget.LinearLayout)
-                ((android.widget.LinearLayout) b.getParent()).setBaselineAligned(false);
+            styleButton(b, w == android.app.AlertDialog.BUTTON_POSITIVE);
         }
         // the title (when the dialog has one) in the dashboard's text color
         int id = c.getResources().getIdentifier("alertTitle", "id", "android");
         android.widget.TextView t = id != 0 ? d.findViewById(id) : null;
         if (t != null) t.setTextColor(TEXT);
+    }
+
+    /** A dialog button in the dashboard's style: filled blue when primary, grey otherwise. Call once it has a parent. */
+    static void styleButton(android.widget.Button b, boolean primary) {
+        Context c = b.getContext();
+        b.setAllCaps(false);
+        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
+        b.setTextColor(primary ? BG : TEXT);
+        if (primary) b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        b.setBackground(roundRect(primary ? BLUE : LINE, dp(c, 10)));
+        b.setPadding(dp(c, 16), dp(c, 4), dp(c, 16), dp(c, 4));
+        b.setMinHeight(dp(c, 40));
+        b.setMinimumHeight(dp(c, 40));
+        android.view.ViewGroup.LayoutParams lp = b.getLayoutParams();
+        if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+            ((android.view.ViewGroup.MarginLayoutParams) lp).setMargins(dp(c, 8), 0, 0, dp(c, 8));
+            b.setLayoutParams(lp);
+        }
+        // The button bar is a horizontal LinearLayout with gravity=bottom; with baseline alignment on (the
+        // default) the restyled buttons end up 2 x the bottom margin above where they belong and their tops
+        // are clipped by the bar.
+        if (b.getParent() instanceof android.widget.LinearLayout)
+            ((android.widget.LinearLayout) b.getParent()).setBaselineAligned(false);
     }
 
     static int heroColor(int state) {

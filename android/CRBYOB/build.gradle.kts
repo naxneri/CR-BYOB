@@ -97,6 +97,7 @@ android {
         buildConfigField("String", "GIT_COMMIT", "\"${appVersion.commit}\"")
         // both flavors: links to the docs (the github flavor also uses crbyob.githubRepo for its update check)
         buildConfigField("String", "REPO_URL", "\"https://github.com/${providers.gradleProperty("crbyob.githubRepo").get()}\"")
+        buildConfigField("String", "REPORT_WORKER_URL", "\"${providers.gradleProperty("crbyob.reportWorker").orElse("").get()}\"")
         manifestPlaceholders["cleartext"] = "false"
     }
 

@@ -10,6 +10,69 @@ when tagging. A release build fails if its version has no dated section here.
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-14
+
+### Fixed
+- Plugging in the scanner while the phone is locked no longer crashes CR-BYOB on Android 12 and newer. The
+  bridge now starts when you unlock the phone.
+- Wi-Fi Direct on Android 8 and 9 now tries to start on 5 GHz when available, like on newer Android versions.
+
+### Changed
+- Device reports: reduced unexpected delays before the app notices a reply on a report you sent.
+
+## [0.2.13] - 2026-11-13
+
+### Added
+- Device reports: *Attach most recent logs* in a report's reply box sends your latest log with the reply.
+- Device reports: *Send a device report* first offers to add your latest logs to a report you already have open,
+  instead of starting a new one.
+- Device reports: a report's page says when it last refreshed, with *Refresh now*.
+
+### Fixed
+- Device reports: a reply you send shows on its report's page right away, instead of up to a minute later.
+
+## [0.2.12] - 2026-11-13
+
+### Added
+- Device reports: each report shows its title and its status (Open, Resolved, Not planned, Locked) as a
+  colored badge in your list of reports and on its page.
+- Device reports: a report's page starts with the report you sent. Long reports and replies show their
+  first lines with "… Show full report", and the newest reply is highlighted when the page opens.
+
+### Changed
+- Device reports: your reports and each report open as full pages, and Back from a report returns to your
+  list.
+- Device reports: the app always checks your open reports for replies; the *Automatically check for replies
+  in app* switch is gone.
+
+### Fixed
+- Device reports: a locked report no longer offers a reply box.
+- Device reports: a report reopened on GitHub takes replies again, and the app checks it for answers again.
+- Device reports: a report deleted on GitHub leaves your list instead of showing "GitHub answered 410".
+- Device reports: when the report server refuses a report or reply, the message now just says why.
+- Device reports: an empty log section in a report no longer shows stray code markers.
+- Device report form: plugging in the scanner while the form is open fills in its model and firmware
+  without closing and reopening the form. Picking the scanner now also puts it in the title, which used
+  to keep a placeholder where the scanner's name belongs.
+
+## [0.2.11] - 2026-11-12
+
+### Fixed
+- CR-Scan Raptor: blue-line scans with color no longer lock up on Max. Boost and Max raised the color camera
+  along with the IR cameras, but in blue-line mode the Raptor allows color only up to 10 fps: on Max it sent
+  no color at all and Creality Scan kept restarting the streams. Color now stays at the scanner's limit for
+  the scan mode, which should also fix the all-black colors after a Boost scan.
+
+## [0.2.10] - 2026-11-12
+
+### Added
+- Device reports no longer need a GitHub account: *Send Anonymous Report* files it for you in one tap.
+- Replies to your reports show on the dashboard, and you can answer them in the app.
+
+### Changed
+- The device report form is shorter and easier to fill in: measurements are attached automatically and
+  missing fields are marked from the start.
+
 ## [0.2.9] - 2026-11-10
 
 ### Fixed

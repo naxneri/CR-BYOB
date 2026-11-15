@@ -168,6 +168,7 @@ final class P2pGroup {
         // which collapses TCP throughput. So try the STA's own channel first (SCC), then the band.
         int sf = staFreq();
         tryFreq = cfgFreq > 0 ? cfgFreq : cfgFreq == 0 && sf >= 5000 && sf < 5900 ? sf : 0;
+        if (Build.VERSION.SDK_INT < 29 && tryFreq == 0) tryFreq = 5180;   // no band API: pin ch 36, see pinChannel
         mgr = (WifiP2pManager) ctx.getSystemService(Context.WIFI_P2P_SERVICE);
         if (mgr == null) {
             state = "unsupported";
@@ -198,7 +199,7 @@ final class P2pGroup {
             WifiP2pManager.ActionListener l = new WifiP2pManager.ActionListener() {
                 @Override
                 public void onSuccess() {
-                    BLog.log("p2p_group_created", "ssid", ssid, "requested", tryFreq > 0 ? tryFreq + " MHz" : "5GHz band");
+                    BLog.log("p2p_group_created", "ssid", ssid, "requested", requested());
                     state = "up";
                     main.postDelayed(() -> refreshInfo("created"), 1000);
                 }
@@ -206,9 +207,13 @@ final class P2pGroup {
                 @Override
                 public void onFailure(int reason) {
                     // 0 ERROR, 1 P2P_UNSUPPORTED, 2 BUSY
-                    BLog.log("p2p_group_failed", "reason", reason, "retry", retries, "requested", tryFreq > 0 ? tryFreq + " MHz" : "5GHz band");
+                    BLog.log("p2p_group_failed", "reason", reason, "retry", retries, "requested", requested());
                     state = "failed(" + reason + ")";
-                    if (tryFreq > 0 && cfgFreq <= 0) {      // driver refused the STA channel (e.g. DFS): use the band
+                    if (Build.VERSION.SDK_INT < 29 && tryFreq > 0 && cfgFreq <= 0) {
+                        // pinned channel refused (regulatory, DFS, no MCC): STA ch -> 36 -> 149 -> unpinned (driver's pick, often 2.4 GHz)
+                        tryFreq = tryFreq == 5745 ? 0 : tryFreq == 5180 ? 5745 : 5180;
+                        main.postDelayed(P2pGroup.this::create, 1000);
+                    } else if (tryFreq > 0 && cfgFreq <= 0) {      // driver refused the STA channel (e.g. DFS): use the band
                         tryFreq = 0;
                         main.postDelayed(P2pGroup.this::create, 1000);
                     } else if (wanted && retries++ < 5) main.postDelayed(P2pGroup.this::create, 3000);
@@ -224,11 +229,34 @@ final class P2pGroup {
                 WifiP2pConfig cfg = b.build();
                 mgr.createGroup(ch, cfg, l);
             } else {
+                pinChannel(tryFreq > 0 ? channelOf(tryFreq) : 0);   // queued ahead of CREATE_GROUP on the same channel
                 mgr.createGroup(ch, l);   // API 26-28: random DIRECT-xx name/passphrase
             }
         } catch (SecurityException e) {
             state = "no permission";
             BLog.log("p2p_group_failed", "err", String.valueOf(e), "hint", "grant NEARBY_WIFI_DEVICES (33+) / location (<33)");
+        }
+    }
+
+    private String requested() {
+        if (tryFreq > 0) return tryFreq + " MHz";
+        return Build.VERSION.SDK_INT >= 29 ? "5GHz band" : "unpinned";
+    }
+
+    /**
+     * API 26-28 has no band/frequency in createGroup. The hidden setWifiP2pChannels (light greylist on Pie, no
+     * permission check beyond CHANGE_WIFI_STATE) makes wpa_supplicant disallow every frequency except channel oc,
+     * so the next group must start there or fail. 0 clears it; it otherwise lasts until Wi-Fi restarts.
+     */
+    private void pinChannel(int oc) {
+        try {
+            WifiP2pManager.class.getMethod("setWifiP2pChannels", WifiP2pManager.Channel.class, int.class, int.class,
+                    WifiP2pManager.ActionListener.class).invoke(mgr, ch, 0, oc, new WifiP2pManager.ActionListener() {
+                @Override public void onSuccess() { BLog.log("p2p_pin", "oc", oc, "ok", true); }
+                @Override public void onFailure(int r) { BLog.log("p2p_pin", "oc", oc, "ok", false, "reason", r); }
+            });
+        } catch (Exception e) {
+            BLog.log("p2p_pin", "oc", oc, "err", String.valueOf(e));
         }
     }
 
@@ -339,6 +367,7 @@ final class P2pGroup {
             receiverOn = false;
         }
         if (mgr != null && ch != null) {
+            if (Build.VERSION.SDK_INT < 29) pinChannel(0);   // don't leave other Wi-Fi Direct use stuck on one channel
             mgr.removeGroup(ch, new WifiP2pManager.ActionListener() {
                 @Override public void onSuccess() { BLog.log("p2p_group_removed"); }
                 @Override public void onFailure(int r) { BLog.log("p2p_group_remove_failed", "reason", r); }

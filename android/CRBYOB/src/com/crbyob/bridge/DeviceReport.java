@@ -145,6 +145,22 @@ final class DeviceReport {
         return "";
     }
 
+    /** Lines of log kept in an anonymous report's body when the whole log goes privately with it. */
+    static final int SHORT_TAIL_LINES = 50;
+
+    /**
+     * The Log field of an anonymous report. When the whole log goes privately with it (`fullLogSent`), a short tail
+     * (the setup lines and the last SHORT_TAIL_LINES lines); otherwise the GitHub app's long tail, as before.
+     */
+    static String anonLog(Fields f, boolean fullLogSent, List<String> pinned, List<String> recent) {
+        if (!f.includeLog) return "";
+        if (!fullLogSent) return logFor("", f, true, "", pinned, recent);
+        List<String> tail = recent.subList(Math.max(0, recent.size() - SHORT_TAIL_LINES), recent.size());
+        int room = MAX_BODY - body(f, "").length() - 20;
+        return room < 200 ? "" : LogExport.readable(pinned, tail, "CR-BYOB log (serial numbers, Wi-Fi names, passwords, "
+                + "MAC and IP addresses removed). The whole log was sent privately to the maintainer.", room, new LinkedHashMap<>());
+    }
+
     /** The digest's pointer to the whole log: the saved archive, or Export log when it couldn't be saved. */
     static String fullLogNote(String savedName, String where) {
         return savedName != null ? savedName + " in " + where + ", attach it here"
@@ -180,6 +196,12 @@ final class DeviceReport {
     }
 
     /** Fills the fields from a dashboard snapshot (may be null), the current session's stats and the build. */
+    /** title with its first `was` replaced by `now`, or null when it no longer contains `was`. */
+    static String titleWithScanner(String title, String was, String now) {
+        int i = title.indexOf(was);
+        return i < 0 ? null : title.substring(0, i) + now + title.substring(i + was.length());
+    }
+
     static Fields collect(Dash.Snap s, SessionStats ss, String appLine, String phone) {
         return collect(s, ss, appLine, phone, null);
     }
@@ -532,8 +554,39 @@ final class DeviceReport {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
-    /** Shows the review dialog, filled in from the bridge (running) or the dashboard's last snapshot. */
+    /**
+     * Send a device report: with anonymous reports still open, first offers to add the latest logs to one of them
+     * (its thread opens with the logs attached) instead of starting a new report. A kept draft (Scan first) goes
+     * straight back to the form.
+     */
     static void open(Activity a) {
+        java.util.List<org.json.JSONObject> open = AnonReports.enabled() && draft == null
+                ? AnonReports.openReports(AnonReports.reports(a.getSharedPreferences("bridge", Activity.MODE_PRIVATE)))
+                : new ArrayList<>();
+        if (open.isEmpty()) {
+            openForm(a);
+            return;
+        }
+        String[] items = new String[open.size()];
+        for (int i = 0; i < items.length; i++) {
+            String t = AnonReports.title(open.get(i));
+            items[i] = "#" + open.get(i).optInt("n") + (t.isEmpty() ? "" : " \u00b7 " + t);
+        }
+        BLog.log("device_report_open_reports", "count", items.length);
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(a)
+                .setTitle("Add your latest logs to an open report?")
+                .setItems(items, (x, which) -> {
+                    BLog.log("device_report_add_to_open");
+                    ReportsActivity.open(a, open.get(which).optInt("n"), true);
+                })
+                .setPositiveButton("Start a new report", (x, w) -> openForm(a))
+                .setNegativeButton("Cancel", null)
+                .create();
+        Widgets.showStyled(d);
+    }
+
+    /** Shows the review dialog, filled in from the bridge (running) or the dashboard's last snapshot. */
+    static void openForm(Activity a) {
         Bridge b = BridgeService.current();
         Dash.Snap s = b != null ? b.dash.snap : lastSnap;
         Fields f = collect(s, SessionStats.cur, AppVersion.bugReportLine(), Build.MANUFACTURER + " " + Build.MODEL, appHealth(a));
@@ -590,12 +643,21 @@ final class DeviceReport {
         private final Fields f;
         private final android.widget.LinearLayout body;
         private android.widget.EditText title, client, details;
+        private String measured = "";   // f.details up to the notes marker: sent above what the person types
         private android.widget.TextView scanner, network, result, error;
+        private android.widget.TextView facts;       // scanner model/firmware and app/phone line, kept current
+        private String titleScanner = "<scanner>";    // the scanner the title names, until the reporter rewrites it
         private android.widget.CheckBox includeLog;
         private LogFiles.Saved saved;                // the log archive saved for this report, null = none
         private android.widget.ScrollView scroll;
-        private boolean tried;                       // Continue was tapped once: missing fields show in red
+        private boolean tried;                       // a send was tapped once: the "Still needed" line shows
         private android.app.AlertDialog dialog;
+        private android.widget.TextView githubLink;   // "Send Report with my own GitHub account instead", null when anon is off
+        private android.widget.Button sendBtn, cancelBtn;   // the anonymous dialog's own buttons, null when anon is off
+        private android.widget.LinearLayout sending;          // spinner + "Sending…", shown in the link's place
+        private boolean anon;                        // this submit goes to the report Worker, not the GitHub form
+        // the whole log for an anonymous send, built while the form is open; null when anon is off
+        private java.util.concurrent.FutureTask<java.io.File> logZip;
 
         Review(Activity a, Fields f) {
             this.a = a;
@@ -635,7 +697,7 @@ final class DeviceReport {
             e.addTextChangedListener(new android.text.TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence x, int a1, int b1, int c1) { }
                 @Override public void onTextChanged(CharSequence x, int a1, int b1, int c1) { }
-                @Override public void afterTextChanged(android.text.Editable x) { if (tried) check(); }
+                @Override public void afterTextChanged(android.text.Editable x) { check(); }
             });
             if (multi) {
                 e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -655,22 +717,6 @@ final class DeviceReport {
             return e;
         }
 
-        /**
-         * A value the app measured (firmware, app/phone/Android): shown as-is and not editable, so reports carry
-         * exactly what the phone and scanner said. Outlined instead of filled, to read as fixed.
-         */
-        private void fixed(String value, boolean known) {
-            android.widget.TextView t = text(15, known ? Widgets.TEXT : Widgets.GREY);
-            android.graphics.drawable.GradientDrawable g = Widgets.roundRect(0x00000000, dp(8));
-            g.setStroke(Math.max(1, dp(1)), Widgets.LINE);
-            t.setBackground(g);
-            t.setPadding(dp(10), dp(8), dp(10), dp(8));
-            t.setText(value);
-            t.setTextIsSelectable(true);                 // can still be copied
-            body.addView(t, new android.widget.LinearLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-
         /** A field that picks one of `options` in a styled list; "Choose…" until set. */
         private android.widget.TextView picker(String title, String value, java.util.List<String> options) {
             android.widget.TextView t = text(15, Widgets.TEXT);
@@ -683,6 +729,7 @@ final class DeviceReport {
                         .setTitle(title)
                         .setSingleChoiceItems(options.toArray(new String[0]), options.indexOf(cur), (dd, which) -> {
                             setPick(t, options.get(which));
+                            if (t == scanner) retitle(options.get(which));
                             dd.dismiss();
                         })
                         .setNegativeButton("Cancel", null)
@@ -694,12 +741,21 @@ final class DeviceReport {
             return t;
         }
 
+        /** A picked scanner goes into the title in place of "<scanner>" (or the last pick), unless it was rewritten. */
+        private void retitle(String pick) {
+            String now = OTHER.equals(pick) ? "<scanner>" : pick;
+            String t = titleWithScanner(title.getText().toString(), titleScanner, now);
+            if (t == null) return;                    // the reporter wrote their own title
+            title.setText(t);
+            titleScanner = now;
+        }
+
         private void setPick(android.widget.TextView t, String value) {
             boolean set = value != null && !value.isEmpty();
             t.setTag(set ? value : "");
             t.setText(set ? value + "  \u25BE" : "Choose\u2026  \u25BE");
             t.setTextColor(set ? Widgets.TEXT : Widgets.GREY);
-            if (tried) check();
+            check();
         }
 
         /** A small note line under a field (hidden until set). */
@@ -722,36 +778,44 @@ final class DeviceReport {
 
         void show() {
             android.widget.TextView intro = text(14, Widgets.SUB);
-            intro.setText("This is everything the report will contain. Add what you saw and fix anything that's off; "
-                    + "the scanner, its firmware and the app details come straight from the scanner and this phone. Continue opens it "
-                    + "on GitHub, where you submit it.");
+            intro.setText("Check what's filled in and add what happened."
+                    + (AnonReports.enabled() ? "" : " Continue opens it on GitHub, where you submit it."));
             body.addView(intro);
             label("Title", true);
             title = field(f.title, "[Device] <scanner> on <phone>", false);
-            if (f.scannerDetected) {                   // the plugged-in scanner, identified by its USB product ID
-                label("Scanner \u00B7 detected over USB", false);
-                fixed(f.scanner, true);
-            } else {                                   // none plugged in, or a model the app doesn't know
+            if (!f.scannerDetected) {                  // none plugged in, or a model the app doesn't know
                 label("Scanner", true);
                 scanner = picker("Scanner", f.scanner, scannerOptions(a));
             }
-            label("Scanner firmware \u00B7 read from the scanner", false);
-            fixed(f.scannerFw.isEmpty() ? "Unknown: plug the scanner in to read it" : f.scannerFw, !f.scannerFw.isEmpty());
-            label("App, phone and Android version \u00B7 from this phone", false);
-            fixed(f.appInfo, true);
+            // what the scanner and this phone said, as one read-only summary: it goes in the report as-is
+            label("From the scanner and this phone", false);
+            facts = text(13, Widgets.SUB);
+            facts.setText(factsText());
+            facts.setTextIsSelectable(true);
+            body.addView(facts);
             label("Network", true);
             network = picker("Network", f.network, java.util.Arrays.asList(NETWORKS));
             label("Creality Scan version", false);
             client = field(f.client, "Creality Scan 4.x (Windows) / CrealityScan 3.1.2 (Android)", false);
             label("Result", true);
             result = picker("Result", f.result, java.util.Arrays.asList(RESULTS));
-            label("What happened", true);
+            label("What happened", false);
             android.widget.TextView src = note(f.streamMs > 0 ? Widgets.SUB : Widgets.AMBER);
             src.setText(statsSource(f, android.text.format.DateFormat.getTimeFormat(a)));
             src.setVisibility(android.view.View.VISIBLE);
-            details = field(f.details, "", true);
+            // the measurements ride along above the person's own words; the box holds only what they type
+            int m = f.details.indexOf(NOTES_MARKER);
+            measured = m < 0 ? "" : f.details.substring(0, m + NOTES_MARKER.length()) + "\n\n";
+            android.widget.TextView seeMeasured = text(13, Widgets.BLUE);
+            seeMeasured.setText("The measurements are attached · See them ›");
+            seeMeasured.setPadding(0, dp(2), 0, dp(6));
+            seeMeasured.setOnClickListener(v -> showText("Attached measurements",
+                    measured.substring(0, Math.max(0, measured.indexOf(NOTES_MARKER))).trim()));
+            if (!measured.isEmpty()) body.addView(seeMeasured);
+            details = field(notesOf(f.details), "What you did, what worked, what didn't", true);
+            details.setMinLines(4);
             includeLog = new android.widget.CheckBox(a);
-            includeLog.setText("Include the log");
+            includeLog.setText("Include anonymous & redacted logs");
             includeLog.setTextColor(Widgets.TEXT);
             includeLog.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
             includeLog.setButtonTintList(android.content.res.ColorStateList.valueOf(Widgets.BLUE));
@@ -760,49 +824,167 @@ final class DeviceReport {
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             clp.topMargin = dp(10);
             body.addView(includeLog, clp);
+            // one line; the digest/zip details show in the digest view and when a browser opens the form
             android.widget.TextView logNote = text(13, Widgets.SUB);
-            logNote.setText("The log goes in the report's Log field. In a browser that's a digest, and the whole log "
-                    + "is saved to Downloads as a zip for you to attach. It helps most when something doesn't work.");
+            android.text.SpannableStringBuilder ln = new android.text.SpannableStringBuilder(
+                    "Recent lines only. It helps most when something doesn't work. ");
+            appendLink(ln, "See it \u203A", this::showDigest);
+            logNote.setText(ln);
+            logNote.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
             body.addView(logNote);
-            android.widget.TextView preview = text(13, Widgets.BLUE);
-            preview.setText("See the digest \u203A");
-            preview.setPadding(0, dp(6), 0, dp(2));
-            preview.setOnClickListener(v -> showDigest());
-            body.addView(preview);
-            includeLog.setOnCheckedChangeListener((v, on) -> {
-                logNote.setAlpha(on ? 1f : 0.5f);
-                preview.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
-            });
-            if (!f.includeLog) {
-                logNote.setAlpha(0.5f);
-                preview.setVisibility(android.view.View.GONE);
-            }
-            android.widget.TextView privacy = text(13, Widgets.SUB);
-            privacy.setText("Never included: the scanner's serial number, Wi-Fi network names, passwords, and MAC and IP "
-                    + "addresses. The report is public on GitHub.");
+            if (AnonReports.enabled()) buildLogZip();
+            includeLog.setOnCheckedChangeListener((v, on) -> logNote.setAlpha(on ? 1f : 0.5f));
+            if (!f.includeLog) logNote.setAlpha(0.5f);
+            android.widget.TextView privacy = text(13, Widgets.AMBER);
+            privacy.setText("This report will be visible publicly on CR-BYOB's GitHub page. Do not include information "
+                    + "you don't want to share.");
             privacy.setPadding(0, dp(12), 0, 0);
             body.addView(privacy);
             error = text(14, Widgets.RED);
             error.setPadding(0, dp(8), 0, 0);
             error.setVisibility(android.view.View.GONE);
             body.addView(error);
+            check();                                   // required fields that are empty show red from the start
 
             android.widget.ScrollView sv = new android.widget.ScrollView(a);
             sv.addView(body);
             scroll = sv;
-            android.app.AlertDialog d = new android.app.AlertDialog.Builder(a)
-                    .setTitle("Device report")
-                    .setView(sv)
-                    .setPositiveButton("Continue on GitHub", null)
-                    .setNegativeButton("Cancel", null)
-                    .create();
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(a).setTitle("Device report");
+            if (AnonReports.enabled()) {
+                b.setView(anonFooter(sv));
+            } else {
+                b.setView(sv).setPositiveButton("Continue on GitHub", null).setNegativeButton("Cancel", null);
+            }
+            android.app.AlertDialog d = b.create();
             if (d.getWindow() != null)
                 d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-            d.setOnShowListener(x -> d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                if (submit()) d.dismiss();
-            }));
+            if (AnonReports.enabled()) {
+                sendBtn.setOnClickListener(v -> {
+                    anon = true;
+                    submit();                          // sendAnon dismisses only once the send worked
+                });
+                cancelBtn.setOnClickListener(v -> d.dismiss());
+                d.setOnDismissListener(x -> deleteZip());
+            } else {
+                d.setOnShowListener(x -> d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                    anon = false;
+                    if (submit()) d.dismiss();
+                }));
+            }
             dialog = d;
             Widgets.showStyled(d);
+            watchScanner.run();
+        }
+
+        /** Builds the whole log off the UI thread while the form is filled in, for an anonymous send. */
+        private void buildLogZip() {
+            logZip = new java.util.concurrent.FutureTask<>(() -> AnonReports.logZip(a));
+            new Thread(() -> {
+                logZip.run();
+                try {
+                    logZip.get();
+                } catch (Exception e) {
+                    BLog.log("log_export_error", "err", String.valueOf(e));
+                }
+            }, "report-log-zip").start();
+        }
+
+        /** The built log zip when it can go with the report (built, at most MAX_LOG); waits for the build. Off the UI thread. */
+        private java.io.File zipToSend() {
+            if (logZip == null || !f.includeLog) return null;
+            try {
+                java.io.File z = logZip.get();
+                return z.length() <= AnonReports.MAX_LOG ? z : null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        /** While the form is open: a scanner plugged in after it opened fills in its model and firmware. */
+        private final Runnable watchScanner = new Runnable() {
+            @Override public void run() {
+                if (dialog == null || !dialog.isShowing()) return;
+                Bridge b = BridgeService.current();
+                Dash.Snap s = b != null ? b.dash.snap : lastSnap;   // the dashboard refreshes it every second
+                Fields now = collect(s, null, f.appInfo, "");
+                boolean changed = false;
+                if (!now.scannerFw.isEmpty() && !now.scannerFw.equals(f.scannerFw)) {
+                    f.scannerFw = now.scannerFw;
+                    changed = true;
+                }
+                if (now.scannerDetected && !f.scannerDetected) {
+                    f.scannerDetected = true;
+                    f.scanner = now.scanner;
+                    if (scanner != null) {                 // the picker shown when none was plugged in
+                        setPick(scanner, now.scanner);
+                        retitle(now.scanner);
+                    }
+                    changed = true;
+                }
+                if (changed) facts.setText(factsText());
+                body.postDelayed(this, 1000);
+            }
+        };
+
+        /** The scanner model and firmware (or, in amber, how to get them) over the app/phone line. */
+        private CharSequence factsText() {
+            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+            if (f.scannerDetected) sb.append(f.scanner).append(" (detected over USB) · ");
+            if (f.scannerFw.isEmpty()) {
+                int st = sb.length();
+                sb.append("Firmware unknown: plug the scanner in to read it");
+                sb.setSpan(new android.text.style.ForegroundColorSpan(Widgets.AMBER), st, sb.length(),
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else sb.append("Firmware ").append(f.scannerFw);
+            return sb.append('\n').append(f.appInfo);
+        }
+
+        /**
+         * The form above its own buttons, with the GitHub-account way to send centered under them. The dialog's own
+         * button bar can't do this: Android sizes only its own panels and drops anything added next to them. The form
+         * takes what height is left, so the buttons and the link always show.
+         */
+        private android.view.View anonFooter(android.widget.ScrollView form) {
+            android.widget.LinearLayout col = new android.widget.LinearLayout(a);
+            col.setOrientation(android.widget.LinearLayout.VERTICAL);
+            col.addView(form, new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            android.widget.LinearLayout row = new android.widget.LinearLayout(a);
+            row.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            row.setPadding(dp(16), dp(10), dp(24), 0);   // 8dp more on the right: each button carries an 8dp left margin
+            cancelBtn = new android.widget.Button(a);
+            cancelBtn.setText("Cancel");
+            sendBtn = new android.widget.Button(a);
+            sendBtn.setText("Send Anonymous Report");
+            row.addView(cancelBtn);
+            row.addView(sendBtn);
+            Widgets.styleButton(cancelBtn, false);
+            Widgets.styleButton(sendBtn, true);
+            col.addView(row, new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+            githubLink = text(14, Widgets.BLUE);
+            githubLink.setText("Send Report with my own GitHub account instead ›");
+            githubLink.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            githubLink.setPadding(dp(20), dp(4), dp(20), dp(16));
+            githubLink.setOnClickListener(v -> {
+                anon = false;
+                if (submit()) dialog.dismiss();
+            });
+            col.addView(githubLink);
+            // takes the link's place while a send runs (a few seconds): spinner and "Sending…"
+            sending = new android.widget.LinearLayout(a);
+            sending.setGravity(android.view.Gravity.CENTER);
+            sending.setPadding(dp(20), dp(4), dp(20), dp(16));
+            android.widget.ProgressBar spin = new android.widget.ProgressBar(a, null, android.R.attr.progressBarStyleSmall);
+            spin.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Widgets.BLUE));
+            sending.addView(spin);
+            android.widget.TextView st = text(14, Widgets.SUB);
+            st.setText("Sending…");
+            st.setPadding(dp(8), 0, 0, 0);
+            sending.addView(st);
+            sending.setVisibility(android.view.View.GONE);
+            col.addView(sending);
+            return col;
         }
 
         /**
@@ -821,7 +1003,7 @@ final class DeviceReport {
                         if (dialog != null) dialog.dismiss();
                     })
                     .setNegativeButton("Send anyway", (x, w) -> {
-                        if (dialog != null) dialog.dismiss();
+                        if (dialog != null && !anon) dialog.dismiss();
                         proceed();
                     })
                     .create();
@@ -916,35 +1098,142 @@ final class DeviceReport {
             return saved != null ? fullLogNote(saved.name, saved.where) : fullLogNote(null, null);
         }
 
-        /** Continue: asks which app opens the report (launch saves the log file when it's a browser). */
+        /** Continue: sends it anonymously, or asks which app opens the report (launch saves the log file when it's a browser). */
         private void proceed() {
-            openWith();
+            if (anon) sendAnon();
+            else openWith();
         }
 
-        /** "See the digest": what a browser's Log field will get, with a placeholder file name. */
+        /**
+         * Posts the report to the Worker off the UI thread, with the GitHub app's log (no file to attach). The review
+         * stays open, buttons off, until it's done: on failure the person's entries are still there with the error.
+         */
+        private void sendAnon() {
+            String issueTitle = f.title;
+            enableButtons(false);
+            error.setVisibility(android.view.View.GONE);
+            new Thread(() -> {
+                AnonReports.Sent s = null;
+                int code = 0;
+                String msg = null;
+                try {
+                    LogFiles.Lines l = LogFiles.lines(a);
+                    java.io.File zip = zipToSend();   // the short tail only when the whole log goes along
+                    String report = body(f, anonLog(f, zip != null, l.pinned, l.recent));
+                    s = AnonReports.send(a, issueTitle, report, zip);
+                } catch (java.io.IOException e) {
+                    code = e instanceof AnonReports.HttpError ? ((AnonReports.HttpError) e).code : 0;
+                    msg = AnonReports.errorMessage(e);
+                }
+                AnonReports.Sent sent = s;
+                int c = code;
+                String m = msg;
+                a.runOnUiThread(() -> {
+                    if (a.isFinishing() || a.isDestroyed()) return;
+                    if (sent == null) {
+                        BLog.log("anon_report_failed", "code", c);
+                        enableButtons(true);
+                        error.setText(m);
+                        error.setVisibility(android.view.View.VISIBLE);
+                        scroll.post(() -> scroll.smoothScrollTo(0, error.getBottom()));
+                        return;
+                    }
+                    draft = null;
+                    dialog.dismiss();
+                    if (a instanceof MainActivity) ((MainActivity) a).refreshReplies();   // a dialog: no onResume follows
+                    android.text.SpannableStringBuilder msg2 = new android.text.SpannableStringBuilder("Report sent as: ");
+                    appendLink(msg2, sent.url.replaceFirst("^https?://", ""), () -> {
+                        try {
+                            a.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(sent.url)));
+                        } catch (android.content.ActivityNotFoundException e) {
+                            android.widget.Toast.makeText(a, "No app can open GitHub links",
+                                    android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    });
+                    msg2.append("\n\nReplies will show on the dashboard.");
+                    String logNow = AnonReports.logOutcome(sent.log);
+                    if (logNow != null) msg2.append("\n\n").append(logNow);
+                    android.widget.TextView sentText = text(15, Widgets.TEXT);
+                    sentText.setText(msg2);
+                    sentText.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+                    sentText.setPadding(dp(24), dp(8), dp(24), dp(4));
+                    android.app.AlertDialog d = new android.app.AlertDialog.Builder(a)
+                            .setTitle("Report sent")
+                            .setView(sentText)
+                            .setPositiveButton("OK", null)
+                            .create();
+                    Widgets.showStyled(d);
+                });
+            }, "anon-report").start();
+        }
+
+        /** The built zip is only for this form's send: gone once the form closes, sent or not. */
+        private void deleteZip() {
+            if (logZip == null) return;
+            java.util.concurrent.FutureTask<java.io.File> z = logZip;
+            new Thread(() -> {
+                try {
+                    z.get().delete();
+                } catch (Exception ignored) { }
+            }, "report-log-delete").start();
+        }
+
+        /** Off while a send runs, so it can't go twice or be closed before the result shows. */
+        private void enableButtons(boolean on) {
+            for (android.view.View v : new android.view.View[]{sendBtn, cancelBtn}) {
+                v.setEnabled(on);
+                v.setAlpha(on ? 1f : 0.5f);
+            }
+            githubLink.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
+            sending.setVisibility(on ? android.view.View.GONE : android.view.View.VISIBLE);
+            dialog.setCancelable(on);
+        }
+
+        /**
+         * "See it": the log as the main send will carry it. Anonymous: the readable log, exactly as sent. Otherwise
+         * what a browser's Log field gets (the digest, with a placeholder file name for the zip).
+         */
         private void showDigest() {
             check();
             boolean was = f.includeLog;
             f.includeLog = true;
             LogFiles.Lines l = LogFiles.lines(a);
-            String d = logFor(BuildConfig.REPO_URL, f, false,
+            boolean anonSend = AnonReports.enabled();
+            String d = logFor(BuildConfig.REPO_URL, f, anonSend,
                     fullLogNote(LogExport.fileName(System.currentTimeMillis()), "Downloads"), l.pinned, l.recent);
             f.includeLog = was;
-            android.widget.TextView t = text(11, Widgets.TEXT);
-            t.setTypeface(android.graphics.Typeface.MONOSPACE);
-            t.setText(d.isEmpty() ? "Nothing to show yet: the log is empty, or the report leaves no room."
-                    : "In a browser the Log field gets this digest. In the GitHub app it gets as much of the recent "
-                    + "log instead, as much as GitHub allows (around 500 lines).\n\n" + d);
+            if (d.isEmpty()) showText("Log", "Nothing to show yet: the log is empty, or the report leaves no room.");
+            else if (anonSend) showText("Log in this report", d);
+            else showText("Log digest", "In a browser the Log field gets this digest, and the whole log is saved to "
+                    + "Downloads as a zip to attach. In the GitHub app it gets the recent log instead, as much as GitHub "
+                    + "allows (around 500 lines).\n\n" + d);
+        }
+
+        /** A read-only text in its own scrolling dialog (selectable, so it can be copied). */
+        private void showText(String title, String s) {
+            android.widget.TextView t = text(12, Widgets.TEXT);
+            t.setText(s);
             t.setTextIsSelectable(true);
             t.setPadding(dp(20), dp(8), dp(20), dp(8));
             android.widget.ScrollView sv = new android.widget.ScrollView(a);
             sv.addView(t);
             android.app.AlertDialog dd = new android.app.AlertDialog.Builder(a)
-                    .setTitle("Log digest")
+                    .setTitle(title)
                     .setView(sv)
                     .setPositiveButton("OK", null)
                     .create();
             Widgets.showStyled(dd);
+        }
+
+        /** Appends a tappable blue `label` that runs `onTap`, for inline links such as "More ›". */
+        private void appendLink(android.text.SpannableStringBuilder sb, String label, Runnable onTap) {
+            int start = sb.length();
+            sb.append(label);
+            sb.setSpan(new android.text.style.ClickableSpan() {
+                @Override public void onClick(android.view.View w) { onTap.run(); }
+                @Override public void updateDrawState(android.text.TextPaint p) { p.setColor(Widgets.BLUE); }
+            }, start, sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
 
         /** Copies the dialog into the fields; false (and says what's missing) while a required one is empty. */
@@ -965,7 +1254,7 @@ final class DeviceReport {
 
         /**
          * Copies the dialog into the fields and outlines every required one that's still empty in red; the line
-         * at the bottom lists them. Returns the first missing field's view, or null when the report is complete.
+         * at the bottom lists them once a send was tapped. Returns the first missing field's view, or null when the report is complete.
          */
         private android.view.View check() {
             if (title == null || network == null || result == null || details == null || error == null) return null;
@@ -974,12 +1263,12 @@ final class DeviceReport {
             f.network = (String) network.getTag();
             f.client = client.getText().toString().trim();
             f.result = (String) result.getTag();
-            f.details = details.getText().toString().trim();
+            f.details = (measured + details.getText().toString().trim()).trim();   // the report's text, as before
             if (includeLog != null) f.includeLog = includeLog.isChecked();
             java.util.List<String> missing = new java.util.ArrayList<>();
             android.view.View first = null;
             Object[][] req = {{"Title", title, f.title}, {"Scanner", scanner, f.scanner}, {"Network", network, f.network},
-                    {"Result", result, f.result}, {"What happened", details, f.details}};
+                    {"Result", result, f.result}};
             for (Object[] r : req) {
                 android.view.View v = (android.view.View) r[1];
                 if (v == null) continue;                  // the scanner shown as detected, not picked
@@ -991,7 +1280,7 @@ final class DeviceReport {
                 }
             }
             error.setText(missing.isEmpty() ? "" : "Still needed: " + String.join(", ", missing));
-            error.setVisibility(missing.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
+            error.setVisibility(missing.isEmpty() || !tried ? android.view.View.GONE : android.view.View.VISIBLE);
             return first;
         }
     }

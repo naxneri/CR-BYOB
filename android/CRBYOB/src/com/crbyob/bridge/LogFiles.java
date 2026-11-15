@@ -36,7 +36,7 @@ final class LogFiles {
         }
     }
 
-    private static void write(Context c, OutputStream os) throws IOException {
+    static void write(Context c, OutputStream os) throws IOException {
         Lines l = lines(c);
         LogExport.writeZip(os, c.getFilesDir(), l.pinned, l.recent, AppVersion.bugReportLine());
     }

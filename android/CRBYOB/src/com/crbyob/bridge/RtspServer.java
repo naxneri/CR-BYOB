@@ -424,7 +424,15 @@ final class RtspServer {
             }
             final Bridge.Role role = this.role;
             int stype = (Integer) profile[0];
-            UsbDesc.Profile p = (UsbDesc.Profile) profile[1];
+            UsbDesc.Profile asked = (UsbDesc.Profile) profile[1], p = asked;
+            if (stype == Bridge.ST_COLOR) {
+                // Creality Scan picks colour once at connect, maybe in another work mode; over the current mode's
+                // limit (Raptor Laser Lines: 10) the colour camera sends nothing, so run it at the limit instead
+                UsbDesc.Vs cvs = bridge.vsFor(role.name);
+                int ccap = bridge.colorFpsCap(asked.width, asked.height);
+                if (cvs != null) p = UsbDesc.capFps(cvs.profiles, asked, ccap);
+                if (p != asked) BLog.log("color_fps_capped", "port", port, "asked", asked.fps, "using", p.fps, "cap", ccap);
+            }
             int pt = 96 + stype;
             boolean isIr = Bridge.isIr(stype);
             Semaphore lock = bridge.nodeLock(role.nodeKey());
